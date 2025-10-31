@@ -1,0 +1,22 @@
+# Ignore virtual environments
+.venv/
+venv/
+
+# Ignore MLflow logs
+mlruns/
+
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+
+# Ignore Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Ignore DVC cache
+.dvc/
+.dvc/tmp/
+.dvc/cache/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
