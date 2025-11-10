@@ -3,6 +3,9 @@ sarima:
   seasonal_order: [1, 0, 1, 7]
   max_train_size: 760
   test_size: 7
+prophet:
+  test_size: 7
+
 
 lightgbm:
   learning_rate: 0.05

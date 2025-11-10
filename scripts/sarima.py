@@ -19,13 +19,18 @@ import joblib
 from mlflow.models.signature import infer_signature
 
 # === Environment Setup ===
+from dotenv import load_dotenv
+load_dotenv()
+
+
 os.makedirs("output/plots", exist_ok=True)
     
-os.environ['MLFLOW_TRACKING_URI']="https://dagshub.com/elias.reaz/dvc-mlflow-forecasting-pipeline.mlflow"
-os.environ['MLFLOW_TRACKING_USERNAME']="elias.reaz"
-os.environ["MLFLOW_TRACKING_PASSWORD"]="322deb1c68fe16c38ea5d0ca62389960a181bb49"
+os.environ['MLFLOW_TRACKING_URI'] = os.getenv("MLFLOW_TRACKING_URI")
+os.environ['MLFLOW_TRACKING_USERNAME'] = os.getenv("MLFLOW_TRACKING_USERNAME")
+os.environ['MLFLOW_TRACKING_PASSWORD'] = os.getenv("MLFLOW_TRACKING_PASSWORD")
 
-mlflow.set_tracking_uri("https://dagshub.com/elias.reaz/dvc-mlflow-forecasting-pipeline.mlflow")
+
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
 
 
 
