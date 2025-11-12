@@ -1,17 +1,14 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from prophet import Prophet
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.model_selection import TimeSeriesSplit
 import mlflow
+import yaml
 from pathlib import Path
 from IPython.display import display
-# Ontario holidays setup
-import holidays
 import os
 from dotenv import load_dotenv
-
-import yaml
 
 from utils.evaluate_forecast import evaluate_forecast
 from utils.mlflow_logger import log_cv_results
@@ -19,7 +16,7 @@ from utils.mlflow_logger import log_cv_results
 load_dotenv()
 
 os.makedirs("output/plots", exist_ok=True)
-
+    
 mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
 os.environ['MLFLOW_TRACKING_USERNAME'] = os.getenv("MLFLOW_TRACKING_USERNAME")
 os.environ['MLFLOW_TRACKING_PASSWORD'] = os.getenv("MLFLOW_TRACKING_PASSWORD")
@@ -31,46 +28,36 @@ try:
 except NameError:
     BASE_DIR = Path().cwd().parent
 
-
-def get_ontario_holidays(years):
-    ontario_holidays = holidays.CA(prov='ON', years=years)
-    return pd.DataFrame([
-        {'ds': date, 'holiday': name}
-        for date, name in ontario_holidays.items()
-    ])
-    
 # Plotting
-def plot_forecast(model, train_df, test_df, forecast_test, fold):
-    
+def plot_forecast(y_train, y_test, preds_log, conf_int_log, fold):
     fig, ax = plt.subplots(2, 1, figsize=(10, 6))
 
-    # Log-transformed
-    ax[0].plot(train_df['ds'][-50:], train_df['y'][-50:], label="Train", color='steelblue')
-    ax[0].plot(test_df['ds'], test_df['y'], label="Observed", color='blue')
-    ax[0].plot(forecast_test.index, forecast_test['yhat'], label="Predicted", color='orange')
-    ax[0].fill_between(forecast_test.index, forecast_test['yhat_lower'], forecast_test['yhat_upper'], color='red', alpha=0.2)
+    # Log-transformed scale
+    ax[0].plot(y_train.index[-50:], y_train[-50:], label="Train", color="steelblue")
+    ax[0].plot(y_test.index, y_test, label="Observed", color="steelblue")
+    ax[0].plot(preds_log.index, preds_log, label="Predicted", color="orange")
+    ax[0].fill_between(conf_int_log.index, conf_int_log.iloc[:, 0], conf_int_log.iloc[:, 1], color='red', alpha=0.2)
     ax[0].legend()
-    ax[0].set_title(f"Fold {fold+1}: Prophet Prediction (log-transformed)")
+    ax[0].set_title(f"Fold {fold+1}: SARIMA Prediction (log-transformed)")
     ax[0].grid(alpha=0.3)
 
     # Original scale
-    ax[1].plot(train_df['ds'][-50:], np.expm1(train_df['y'][-50:]), label="Train", color='steelblue')
-    ax[1].plot(test_df['ds'], np.expm1(test_df['y']), label="Observed", color='blue')
-    ax[1].plot(forecast_test.index, np.expm1(forecast_test['yhat']), label="Predicted", color='orange')
+    ax[1].plot(y_train.index[-50:], np.expm1(y_train[-50:]), label="Train", color="steelblue")
+    ax[1].plot(y_test.index, np.expm1(y_test), label="Observed", color="steelblue")
+    ax[1].plot(preds_log.index, np.expm1(preds_log), label="Predicted", color="orange")
     ax[1].legend()
-    ax[1].set_title(f"Fold {fold+1}: Prophet Prediction (Original Scale)")
+    ax[1].set_title(f"Fold {fold+1}: SARIMA Prediction (Original Scale)")
     ax[1].grid(alpha=0.3)
-    
+
     plt.tight_layout()
     plt.pause(1)
-    ## save plot
-    plot_path = BASE_DIR / "output" / "plots" / f"prophet_fold_{fold}.png"
+    plot_path = BASE_DIR / "output" / "plots" / f"sarima_fold_{fold}.png"
     fig.savefig(plot_path)
     plt.close(fig=fig)
-    
-     
+   
+   
 # MLflow logging stub
-def log_prophet_result(model, summary_evaluation_metric):
+def log_sarima_result(model, summary_evaluation_metric, order, seasonal_order):
     
     df_eval = pd.DataFrame(summary_evaluation_metric)
 
@@ -79,11 +66,11 @@ def log_prophet_result(model, summary_evaluation_metric):
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Save DataFrame to CSV
-    csv_path = output_path / "prophet_model_cv_results.csv"
+    csv_path = output_path / "sarima_model_cv_results.csv"
     df_eval.to_csv(csv_path, index=False)
 
     # Log the CSV file as an artifact
-    mlflow.log_artifact(str(csv_path), artifact_path='prophet/cv_results')
+    mlflow.log_artifact(str(csv_path), artifact_path='sarima/cv_results')
     
     cv_avg_mae_log_values = round(np.mean(summary_evaluation_metric['mae_list_log']), 4)
     cv_avg_rmse_log_values = round(np.mean(summary_evaluation_metric['rmse_list_log']), 4)
@@ -92,6 +79,7 @@ def log_prophet_result(model, summary_evaluation_metric):
     cv_avg_rmse_original_values = round(np.mean(summary_evaluation_metric['rmse_list_original']), 4)
     cv_avg_smape_original_values = round(np.mean(summary_evaluation_metric['smape_list_original']), 4)
     
+             
     mlflow.log_metric("rmse", cv_avg_rmse_original_values)  # for filtering
     mlflow.log_metric("rmse_log", cv_avg_rmse_log_values)
     mlflow.log_metric("mae", cv_avg_mae_original_values)
@@ -100,13 +88,23 @@ def log_prophet_result(model, summary_evaluation_metric):
     mlflow.log_metric("smape_log", cv_avg_smape_log_values)
 
     
-    mlflow.log_param("model_type", "Prophet")
-    mlflow.log_param("holiday_region", "Ontario")
+    mlflow.log_metric("AIC", model.aic)
+    mlflow.log_metric("BIC", model.bic)
+    mlflow.log_metric("HQIC", model.hqic)
+    
+    mlflow.log_param("sarima_order", order)
+    mlflow.log_param("sarima_seasonal_order", seasonal_order)
+
+            
+    mlflow.log_text(model.summary().as_text(), "model_summary.txt")
+
+    
+    mlflow.log_param("model_type", "SARIMA")
     mlflow.log_text(str(model), "model_summary.txt")
     
         
 # CV loop
-def prophet_cv(df, holiday_df, forecast_horizon, n_splits=5):
+def sarima_cv(y_log, order, seasonal_order, forecast_horizon, n_splits=5):
     
     mae_list_log, rmse_list_log, smape_list_log = [], [], []
     mae_list_original, rmse_list_original, smape_list_original = [], [], []
@@ -114,26 +112,21 @@ def prophet_cv(df, holiday_df, forecast_horizon, n_splits=5):
     # TimeSeriesSplit with 7-day test windows to simulate weekly forecasting
     tscv = TimeSeriesSplit(n_splits=n_splits, test_size=forecast_horizon)
 
-    for fold, (train_idx, test_idx) in enumerate(tscv.split(df)):
+    for fold, (train_idx, test_idx) in enumerate(tscv.split(y_log)):
         
-        train_df = df.iloc[train_idx]
-        test_df = df.iloc[test_idx]
+        y_train = y_log.iloc[train_idx]
+        y_test = y_log.iloc[test_idx]
 
-        model = Prophet(
-            growth='linear',
-            yearly_seasonality=True,
-            weekly_seasonality=True,
-            daily_seasonality=False,
-            holidays=holiday_df
-        )
-        model.fit(train_df)
+        model = SARIMAX(y_train, order=order, seasonal_order=seasonal_order,
+                        enforce_stationarity=False, enforce_invertibility=False)
+        model_fit = model.fit(disp=False)
 
-        future = model.make_future_dataframe(periods=len(test_df), freq='D')
-        forecast = model.predict(future)
-        # forecast_test = forecast.set_index('ds').loc[test_df['ds'].values]
-        forecast_test = forecast.set_index('ds').reindex(test_df['ds'])
+        forecast_obj = model_fit.get_forecast(steps=len(y_test))
+        preds_log = forecast_obj.predicted_mean
+        conf_int_log = forecast_obj.conf_int()
+        preds_orig = np.expm1(preds_log)
 
-        evaluation_metric_dict = evaluate_forecast(test_df['y'], forecast_test['yhat'])
+        evaluation_metric_dict = evaluate_forecast(y_test, preds_log)
         
         rmse_list_log.append(evaluation_metric_dict['rmse_log'])
         mae_list_log.append(evaluation_metric_dict['mae_log'])
@@ -143,9 +136,9 @@ def prophet_cv(df, holiday_df, forecast_horizon, n_splits=5):
         mae_list_original.append(evaluation_metric_dict['mae_original'])
         smape_list_original.append(evaluation_metric_dict['smape_original'])
        
-        plot_forecast(model, train_df, test_df, forecast_test, fold)
+        plot_forecast(y_train, y_test, preds_log, conf_int_log, fold)
         
-    summary_evaluation_mertric = {"fold":list(range(1, 6)), 
+    summary_evaluation_metric = {"fold":list(range(1, n_splits+1)), 
                                   "rmse_list_log": rmse_list_log, 
                                       "mae_list_log": mae_list_log,
                                       "smape_list_log":smape_list_log,
@@ -153,7 +146,7 @@ def prophet_cv(df, holiday_df, forecast_horizon, n_splits=5):
                                       "mae_list_original": mae_list_original,
                                       "smape_list_original": smape_list_original,}
 
-    return model, summary_evaluation_mertric
+    return model_fit, summary_evaluation_metric
 
 def load_data():
 
@@ -167,6 +160,8 @@ def load_data():
     
     return data
 
+
+# === Config Loader ===
 def load_config(config_path: str) -> dict:
     config_file = BASE_DIR / config_path
     with open(config_file, "r") as file:
@@ -174,50 +169,41 @@ def load_config(config_path: str) -> dict:
 
 # Main entry
 def main():
-    
+
     config = load_config("config/config.yaml")
-    prophet_cfg = config["prophet"]
-    forecast_horizon = prophet_cfg.get("test_size", 7)
-    
-    data = load_data()
-    data["log_transformed_redem"] = np.log1p(data["Redemption Count"])
-    data["log_transformed_sales"] = np.log1p(data["Sales Count"])
-    # Optional feature: daily change in log-redemption (not used in Prophet)
-    # data["diff_log_redem"] = data["log_transformed_redem"].diff()
+    sarima_cfg = config["sarima"]
 
-    data = data.dropna().reset_index(drop=True)
+    order = tuple(sarima_cfg["order"])
+    seasonal_order = tuple(sarima_cfg["seasonal_order"])
+    forecast_horizon = sarima_cfg.get("test_size", 7)
 
-    display(data.head())
-    
-    df = data.copy()  # or copy original dataframe
+    data_path = BASE_DIR / "data" / "processed" / "daily_tickets_2022_25.parquet"
+    df = pd.read_parquet(data_path)
+    df["Timestamp"] = pd.to_datetime(df["Timestamp"])
+    df.set_index("Timestamp", inplace=True)
+    df.index.freq = 'D'
 
-    df = df[['Timestamp', 'log_transformed_redem', 'log_transformed_sales']].dropna()
+    y = df["Redemption Count"]
+    y_log = np.log1p(y)
+    
+    with mlflow.start_run(run_name="SARIMA_Modeling"):
 
-    df.rename(columns={"Timestamp":"ds", "log_transformed_redem":"y"}, inplace=True)
-    
-    df['ds'] = pd.to_datetime(df['ds'])
-    
-    years = df['ds'].dt.year.unique()
-    
-    holiday_df = get_ontario_holidays(years)
-    
-    with mlflow.start_run(run_name="Prophet_Modeling"):
-
-        model, summary_metric = prophet_cv(df, holiday_df, forecast_horizon, n_splits=5)
-   
-        # log_prophet_result(model, summary_metric)
-        # # mlflow.log_metric("rmse", round(np.mean(summary_metric["rmse_list_original"])), 4)  # or use np.mean(...) if preferred
-        # mlflow.log_param("model", "tree")
-        # mlflow.log_artifacts(BASE_DIR / "output" / "plots", artifact_path="plots")
+        model, summary_metric = sarima_cv(y_log, order, seasonal_order, forecast_horizon, n_splits=5)
+        
         
         log_cv_results(
-        model_name="Prophet",
-        model_object=model,
-        summary_metrics=summary_metric,
-        holiday_region=config["prophet"]["holidays_region"],
-        base_dir=BASE_DIR,
-        artifact_prefix="prophet"
-    )
+            model_name="SARIMA",
+            model_object=model,
+            summary_metrics=summary_metric,
+            order=config["sarima"]["order"],
+            seasonal_order=config["sarima"]["seasonal_order"],
+            base_dir=BASE_DIR,
+            artifact_prefix="sarima"
+        )
+   
+        # log_sarima_result(model_fit, summary_metric, order, seasonal_order)
+        # mlflow.log_metric("rmse", round(np.mean(summary_metric["rmse_list_original"])), 4)  # or use np.mean(...) if preferred
+        # mlflow.log_param("model", "tree")
 
         mlflow.log_artifacts(BASE_DIR / "output" / "plots", artifact_path="plots")
   

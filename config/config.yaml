@@ -1,10 +1,18 @@
 sarima:
-  order: [2, 1, 2]
-  seasonal_order: [1, 0, 1, 7]
-  max_train_size: 760
-  test_size: 7
+  model_name: "SARIMA"
+  order: [2, 1, 2]                # (p, d, q)
+  seasonal_order: [1, 0, 1, 7]   # (P, D, Q, s) — weekly seasonality
+  max_train_size: 760            # Optional: limit training window for CV
+  test_size: 30                  # Forecast horizon (e.g., 7 days)
+  log_transform: true            # Whether to apply log1p transform
+  plot_last_n: 50                # How many days to show in plots
+
 prophet:
-  test_size: 7
+  model_name: "Prophet"
+  test_size: 30                   # Forecast horizon
+  log_transform: true            # Whether to apply log1p transform
+  holidays_region: "Ontario"     # For Prophet holiday effects
+  plot_last_n: 50                # How many days to show in plots
 
 
 lightgbm:

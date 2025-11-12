@@ -64,10 +64,11 @@ def evaluate_forecast(y_true, y_pred, verbose=False):
         print(f"[SMAPE-original] Skipped {skipped_orig} zero-denominator cases out of {len(y_true_original)}")
 
     return {
-        "rmse_log": rmse_log,
-        "mae_log": mae_log,
-        "smape_log": smape_log,
-        "rmse_original": rmse_original,
-        "mae_original": mae_original,
-        "smape_original": smape_original
+        "rmse_log": round(rmse_log, 4),
+        "mae_log": round(mae_log, 4),
+        "smape_log": round(smape_log, 4),
+        "rmse_original": round(rmse_original,4),
+        "mae_original": round(mae_original,4),
+        "smape_original": round(smape_original,4)
     }
+    
