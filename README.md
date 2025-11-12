@@ -214,3 +214,13 @@ A comparison table below showing **SARIMA vs Prophet** on original scale metrics
 - Prophet achieves ~36% lower MAE, ~46% lower RMSE, and ~41% lower SMAPE on average. If you're selecting a model for forecasting, Prophet appears to generalize better across varied error metrics.
 
 - Overall, **Prophet** shows **stronger generalization** capturinng both trend and seasonality and **lower error** across all metrics.
+
+### MLflow Integration with DagsHub
+
+
+This project uses MLflow for experiment tracking, model management, and reproducibility, fully integrated with DagsHub's hosted MLflow server.
+
+![Dagshub](./output/plots/dagshub_screenshot_sarima.png)
+
+https://dagshub.com/elias.reaz/dvc-mlflow-forecasting-pipeline/experiments
+
